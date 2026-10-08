@@ -5,7 +5,7 @@
 >
 > 核心边界：AgentLoop 编排一轮用户交互，AgentRunner 执行这一轮中的模型—工具循环。两者均采用轻量实现。
 >
-> 本文不依赖原 LearnGraph、nanobot 源码或历史对话。阶段 A 已按本文结构实现，验收状态见 [执行计划](exec-plans/completed/agent-mvp.md)。真实模型验证需要模型地址、模型 ID 和密钥。
+> 本文不依赖原 LearnGraph、nanobot 源码或历史对话。文中路径是待创建的项目结构。真实模型验证需要模型地址、模型 ID 和密钥。
 
 ## 1. 首版要完成什么
 
@@ -89,7 +89,7 @@ mini-learngraph/
     └── test_provider.py
 ```
 
-此结构已落地；测试还包含配置与 CLI 验收，原仓库的 Node.js 工具继续保留。学习模块加入时再创建 learning/，不用提前创建空的服务、仓储或插件目录。
+此结构面向空目录。学习模块加入时再创建 learning/，不用提前创建空的服务、仓储或插件目录。
 
 ## 3. 消息与模型契约
 
