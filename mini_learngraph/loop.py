@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 from copy import deepcopy
 
 from .context import build_messages
+from .hook import AgentHook
 from .runner import AgentRunner
 from .types import AgentResult, Message
 
@@ -23,7 +24,7 @@ class AgentLoop:
         self.context_provider = context_provider
         self.history: list[Message] = []
 
-    async def process(self, user_input: str) -> AgentResult:
+    async def process(self, user_input: str, hook: AgentHook | None = None) -> AgentResult:
         context = None
         if self.context_provider is not None:
             try:
@@ -38,7 +39,7 @@ class AgentLoop:
         messages = build_messages(self.instructions, self.history, user_input, context)
         # Keep the exact current user message, independent of Runner's working copy.
         user_message = deepcopy(messages[-1])
-        result = await self.runner.run(messages)
+        result = await self.runner.run(messages, hook=hook)
         if result.stop_reason == "completed":
             self.history.extend([user_message, *deepcopy(result.messages)])
         return result

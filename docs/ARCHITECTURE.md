@@ -25,6 +25,8 @@
 
 首版保留模型请求超时、最大模型调用轮数、工具参数校验和明确错误。这些直接防止执行卡死或无限循环。
 
+首版提供参考 nanobot 的轻量 TraceHook，用于观察步骤与耗时。它只观察执行生命周期，不承担持久化、重放、权限判断或恢复。
+
 首版不建设 Run 状态机、RunRecorder、执行检查点、持久事件、SSE 重放、请求幂等、任务队列、自动恢复、通用 Hook 框架或审计系统。进程退出后可以丢失历史；用户重新发起任务，不承诺恢复已执行步骤。
 
 前端、沙箱、语音、多租户、MCP、联网研究、长期记忆和子 Agent 也不进入首版。
@@ -73,6 +75,8 @@ mini-learngraph/
 │   ├── loop.py            AgentLoop：内存会话与上下文编排
 │   ├── runner.py          AgentRunner：模型—工具循环
 │   ├── types.py           Message、ToolCall、ModelResponse、AgentResult
+│   ├── hook.py            空 AgentHook、精简上下文与安全调用
+│   ├── trace.py           CLI TraceHook
 │   ├── context.py         消息组装
 │   ├── provider.py        模型协议与 OpenAI 兼容适配器
 │   ├── tools.py           工具注册、参数校验和两个基础工具
@@ -96,6 +100,7 @@ mini-learngraph/
 | Message | role、content、可选 tool_calls 和 tool_call_id |
 | ToolCall | id、name、arguments |
 | ModelResponse | content、完整工具调用列表、finish_reason；可选 usage |
+| ToolResult | text、is_error；注册表标记成功或已知错误，模型消息只使用 text |
 | AgentResult | final_text、messages、stop_reason、可选 error |
 
 AgentResult.messages 是 Runner 新增的 assistant/tool 消息，不包含传入的 system、历史或当前 user 输入。Loop 在成功时将本轮实际发给模型的 user 消息和这些新增消息追加到内存历史；final_text 已包含在对应 assistant 消息中，不能重复追加。final_text 只表示模型回答或部分回答，错误说明放在 error 中，不伪造 assistant 回答消息。
@@ -193,7 +198,7 @@ CLI 为每次 process 调用设置普通异常边界：展示简短错误后继�
 
 ## 5. 工具协议
 
-每个工具只需要四部分：名称、说明、Pydantic 参数模型、异步执行函数。参数模型导出 JSON Schema，同时用于验证模型实参；设置 extra="forbid"，不静默忽略未知参数。工具函数返回文本，复杂数据可先编码为 JSON 文本。
+每个工具只需要四部分：名称、说明、Pydantic 参数模型、异步执行函数。参数模型导出 JSON Schema，同时用于验证模型实参；设置 extra="forbid"，不静默忽略未知参数。工具函数返回文本，复杂数据可先编码为 JSON 文本。注册表用 ToolResult 包装返回值或已知错误，保留显式 is_error 标志；Runner 给模型发送其中的 text。
 
 注册表按名称稳定排序工具 Schema，同名注册报错。只执行精确匹配的名称，不自动把近似名称替换成真实工具。
 
@@ -209,6 +214,69 @@ CLI 为每次 process 调用设置普通异常边界：展示简短错误后继�
 calculate 通过受限 AST 遍历实现，不使用 eval/exec；限制表达式长度、节点数量及数值范围。拒绝变量、属性和函数调用，除零返回错误。时间工具使用可替换时钟，便于固定测试。
 
 首版两个工具没有业务写入。学习阶段加入写操作时，在对应领域服务中处理校验和业务去重，不为了未来写工具提前建设通用可靠执行平台。
+
+### 5.2 参考 nanobot 的轻量 Trace Hook
+
+nanobot 通过 AgentHook 观察 Runner 的运行、迭代及工具执行；另有 EventSink 处理传输无关的通知。mini 借鉴前者，使用一个默认空实现的异步 AgentHook 和一个 CLI TraceHook，不复制完整 Hook 框架或事件系统。
+
+核对依据为 HKUDS/nanobot 提交 3865bde3feab9e3c9c5de15a85ff29eeab79328e 中的 agent/hook.py、agent/runner.py 和 agent/tools/execution.py。下面已经展开 mini 的实现契约，实施无需读取原源码。
+
+Runner.run(messages, hook=None) 未提供 Hook 时使用空 AgentHook。Loop.process(user_input, hook=None) 只把 Hook 转交 Runner，不另外定义 on_trace、TraceEvent 或传输事件。CLI --trace 为每次交互创建新的 TraceHook，避免跨轮累积状态。
+
+| Hook 方法 | 调用时机 |
+| --- | --- |
+| before_run(run_context) | Runner 开始，初始化观察数据 |
+| before_iteration(step_context) | 每次模型请求前 |
+| after_iteration(step_context) | 本轮模型及可能的工具阶段结束；包含响应结束原因、耗时和工具摘要 |
+| before_execute_tool(step_context, call) | 工具参数校验通过后、实际执行前 |
+| after_execute_tool(step_context, call, result) | 工具实际执行成功后 |
+| on_execute_tool_error(step_context, call, error) | 工具查找、参数校验、预期执行错误、超时或未预期异常 |
+| after_run(run_context) | Runner 产生 AgentResult 后，正常结果和受控失败均调用 |
+| on_error(run_context) | Runner 返回非成功结果或出现未预期异常 |
+| on_finally(run_context) | 最后清理观察状态，取消路径也尽力调用 |
+
+这些名称参考 nanobot；mini 的参数和异常隔离规则按本文定义，不声称与其完整接口兼容。所有方法默认空实现，不支持内容重写、执行拦截、插件发现、多个 Hook 组合或数据库写入。
+
+RunHookContext 只包含停止原因、错误类别、模型调用次数和累计耗时。StepHookContext 只包含从 1 开始的 iteration、模型 ID、消息数量、模型耗时、finish_reason 及工具摘要。工具标识通过 call.id/name 传入；不把可修改的消息列表或 Registry 暴露给 Hook。
+
+采用独立的数据快照，避免 Hook 改动执行状态。Hook 需要的字段由 Runner 填充；TraceHook 使用单调时钟和局部计时字典测量各个工具耗时，并生成自己的临时显示 ID。Runner 不接收 trace_id 或计时起点参数。
+
+工具结果参考 nanobot 的显式错误标志：Registry.execute 返回 ToolResult(text, is_error)，工具函数仍返回文本。Registry 将已知错误编码为 is_error=True；Runner 按标志调用错误 Hook，再将 result.text 作为 tool 消息回传。未预期异常仍按现有规则终止本轮。不能通过文本是否包含“Error”判断状态。
+
+参考 nanobot 的 prepare_call，Registry 提供一个小的准备函数，返回已查找到的工具、已验证参数或 ToolResult 错误。Runner 先准备，成功后才触发 before_execute_tool，再执行已准备调用；执行时不重复校验。准备与执行仍留在同一个 Registry，不因此新增 Executor 层。
+
+未知工具和非法参数只调用 on_execute_tool_error，不调用 before_execute_tool，不会让 Trace 显示成工具实际执行过。实际执行发生后，成功调用 after_execute_tool，失败调用 on_execute_tool_error；每次只走一个结束分支。取消不作为可恢复工具错误，继续向上传播。
+
+每次模型请求的迭代快照创建后，通过 finally 调用 after_iteration，包括模型超时和工具异常；未取得响应时 finish_reason 为空，记录错误类别。没有剩余模型调用机会时不触发工具开始 Hook。受控失败先 on_error，再 after_run，最后 on_finally；未预期异常调用 on_error 与 on_finally 后传播，交给 CLI 异常边界。取消将观察快照的原因设为 cancelled，只尝试 on_finally，不调用 after_run，随后继续传播。
+
+CLI 使用方式如下，具体类型按上述契约实现：
+
+```python
+hook = TraceHook() if trace_enabled else None
+result = await loop.process(user_input, hook=hook)
+print(result.final_text)
+if result.error:
+    print(result.error)
+```
+
+默认 TraceHook 将以下信息打印到 stderr，答案仍输出到 stdout：
+
+```text
+[a1] run started
+[a1] iteration=1 model started messages=2
+[a1] tool=calculate call_id=call_1 started
+[a1] tool=calculate call_id=call_1 ok duration_ms=1
+[a1] iteration=1 finished model_ms=820 tool_calls=1
+[a1] iteration=2 model started messages=4
+[a1] iteration=2 finished model_ms=410 tool_calls=0
+[a1] run finished stop_reason=completed model_calls=2
+```
+
+模型和工具执行属于异步流程，因此 Hook 方法统一为 async；CLI 打印仍可以直接同步写入。用一个小的 safe_hook 调用函数隔离普通 Hook 异常，日志只输出方法名和异常类别，不改变 AgentResult。Hook 禁止阻塞 I/O；首版不建设队列或调度器。CancelledError 与退出异常不能被吞掉。
+
+Trace 只观察 Runner，起止不含 Loop 获取领域上下文和更新历史的时间。上下文失败时 Runner 未运行，由 CLI 显示 context_error，不能伪造 Runner 失败记录。取消时尽力输出清理信息，不承诺崩溃后完整记录或恢复。
+
+默认仅输出名称、ID、数量、耗时、结束原因和错误类别，不输出密钥、完整参数、工具结果、用户资料或模型私有推理。工具函数的结果文本和异常不直接写入 Trace。首版默认关闭 Trace，不存文件，不接外部平台，结果判断与历史更新仍只依据 AgentResult。
 
 ## 6. 上下文与学习扩展
 
@@ -248,6 +316,8 @@ calculate 通过受限 AST 遍历实现，不使用 eval/exec；限制表达式�
 
 不照搬渠道总线、复杂 Hook、检查点、子 Agent 或自动记忆。RunRecorder 是此前方案自行引入的抽象，并非 nanobot 必须组件，现已移出首版。
 
+Trace 仅采用其 AgentHook 生命周期命名和显式工具错误标志，精简为观察用途；不移植 CompositeHook、EventSink、流式输出 Hook 或 Provider 私有状态。
+
 ## 8. 实施顺序与验收
 
 | 阶段 | 交付内容 | 完成标准 |
@@ -259,6 +329,8 @@ calculate 通过受限 AST 遍历实现，不使用 eval/exec；限制表达式�
 A 阶段必须验证：直接回答、单工具、同轮多工具、多轮工具、错误参数修正、模型错误、非法调用响应、最大轮数和失败历史处理。使用固定模型桩检查下一次请求中的真实消息配对，不只检查最终文本。
 
 Runner 测试直接传入组装好的消息，独立验证执行逻辑、嵌套输入不变性，以及最后一轮不再执行工具。Loop 测试用假 Runner 验证上下文组装、成功追加、失败不追加、无重复消息、上下文提供失败和 reset；两层组合测试验证连续追问及切换节点后的历史快照。测试模型的过滤/截断响应即使携带工具调用也不得执行。
+
+Trace 测试用 CaptureHook 收集方法名与快照，检查运行/迭代/工具的调用顺序、iteration 和 call_id 对应、错误标志与停止原因，以及 Hook 抛出普通异常后结果不变。未知工具和非法参数不应触发实际执行开始 Hook；取消应传播并尝试 on_finally。使用固定时钟验证耗时非负，默认输出中不得出现密钥或完整输入。Trace 不作为执行结果的唯一断言依据。
 
 真实模型样例包括时间查询、计算、一个同时需要两个工具的任务，以及依赖上文的追问。记录模型 ID 和测试结果，不保存密钥。模型桩测试与真实模型验证分别报告；缺少配置时继续完成实现与桩测试，明确真实模型尚未验证。
 
@@ -281,6 +353,7 @@ MINI_LEARNGRAPH_REQUEST_TIMEOUT_SECONDS=60
 ```bash
 uv sync --locked
 uv run python -m mini_learngraph.cli
+uv run python -m mini_learngraph.cli --trace
 uv run pytest
 ```
 

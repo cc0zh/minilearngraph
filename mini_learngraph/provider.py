@@ -107,6 +107,10 @@ class OpenAIProvider:
         self._owns_client = client is None
         self._client = client if client is not None else httpx.AsyncClient()
 
+    @property
+    def model_id(self) -> str:
+        return self._config.model_id
+
     async def chat(self, messages: list[Message], tools: list[dict]) -> ModelResponse:
         payload: dict[str, Any] = {
             "model": self._config.model_id,

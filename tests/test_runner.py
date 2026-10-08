@@ -6,7 +6,7 @@ import pytest
 from mini_learngraph.provider import InvalidResponseError
 from mini_learngraph.runner import AgentRunner
 from mini_learngraph.tools import default_tools
-from mini_learngraph.types import Message, ModelResponse, ToolCall
+from mini_learngraph.types import Message, ModelResponse, ToolCall, ToolResult
 from tests.fakes import FixedProvider, answer, calls
 
 
@@ -18,11 +18,14 @@ class SpyTools:
     def definitions(self):
         return []
 
-    async def execute(self, call):
+    def prepare_call(self, call):
+        return call
+
+    async def execute_prepared(self, call):
         self.called.append(deepcopy(call))
         if self.failure is not None:
             raise self.failure
-        return "result"
+        return ToolResult("result")
 
 
 async def test_direct_answer_returns_only_new_messages():

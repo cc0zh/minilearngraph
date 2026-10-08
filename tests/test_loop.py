@@ -15,9 +15,11 @@ class FakeRunner:
     def __init__(self, result=None):
         self.result = result or AgentResult("answer", [Message("assistant", "answer")], "completed")
         self.requests = []
+        self.hooks = []
 
-    async def run(self, messages):
+    async def run(self, messages, hook=None):
         self.requests.append(deepcopy(messages))
+        self.hooks.append(hook)
         return self.result
 
 

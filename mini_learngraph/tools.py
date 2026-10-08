@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from .types import ToolCall
+from .types import ToolCall, ToolResult
 
 
 class ToolExecutionError(Exception):
@@ -24,6 +24,12 @@ class Tool:
     description: str
     parameters: type[BaseModel]
     execute: Callable[[BaseModel], Awaitable[str]]
+
+
+@dataclass(frozen=True)
+class PreparedToolCall:
+    tool: Tool
+    parameters: BaseModel
 
 
 class ToolRegistry:
@@ -53,24 +59,33 @@ class ToolRegistry:
             for _, tool in sorted(self._tools.items())
         ]
 
-    async def execute(self, call: ToolCall) -> str:
+    def prepare_call(self, call: ToolCall) -> PreparedToolCall | ToolResult:
         tool = self._tools.get(call.name)
         if tool is None:
-            return "Error: unknown tool."
+            return ToolResult("Error: unknown tool.", is_error=True)
         try:
             parameters = tool.parameters.model_validate(call.arguments)
         except ValidationError:
-            return "Error: invalid tool arguments."
+            return ToolResult("Error: invalid tool arguments.", is_error=True)
+        return PreparedToolCall(tool, parameters)
+
+    async def execute(self, call: ToolCall) -> ToolResult:
+        prepared = self.prepare_call(call)
+        if isinstance(prepared, ToolResult):
+            return prepared
+        return await self.execute_prepared(prepared)
+
+    async def execute_prepared(self, prepared: PreparedToolCall) -> ToolResult:
         try:
             async with asyncio.timeout(self._timeout_seconds):
-                result = await tool.execute(parameters)
+                result = await prepared.tool.execute(prepared.parameters)
             if not isinstance(result, str):
                 raise TypeError("Tool must return a string")
-            return result
+            return ToolResult(result)
         except TimeoutError:
-            return "Error: tool execution timed out."
+            return ToolResult("Error: tool execution timed out.", is_error=True)
         except ToolExecutionError as error:
-            return f"Error: {error}"
+            return ToolResult(f"Error: {error}", is_error=True)
 
 
 class TimeParameters(BaseModel):

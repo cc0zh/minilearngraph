@@ -8,7 +8,7 @@ from mini_learngraph.tools import (
     MAX_EXPRESSION_LENGTH, MAX_NUMBER, Tool, ToolExecutionError, ToolRegistry,
     default_tools,
 )
-from mini_learngraph.types import ToolCall
+from mini_learngraph.types import ToolCall, ToolResult
 
 
 async def calculate(expression):
@@ -21,7 +21,7 @@ async def calculate(expression):
     (str(MAX_NUMBER), str(MAX_NUMBER)), ("(" * 120 + "1" + ")" * 120, "1"),
 ])
 async def test_calculate_arithmetic(expression, result):
-    assert await calculate(expression) == result
+    assert await calculate(expression) == ToolResult(result)
 
 
 @pytest.mark.parametrize("expression", [
@@ -33,21 +33,22 @@ async def test_calculate_arithmetic(expression, result):
     "1\x00+2",
 ])
 async def test_calculate_rejects_unsafe_or_unbounded_input(expression):
-    assert (await calculate(expression)).startswith("Error:")
+    result = await calculate(expression)
+    assert result.is_error and result.text.startswith("Error:")
 
 
 async def test_time_uses_fixed_clock_and_zoneinfo():
     fixed = datetime(2025, 1, 2, 3, 4, 5, tzinfo=UTC)
     registry = default_tools(clock=lambda: fixed)
-    assert await registry.execute(ToolCall("t", "get_current_time", {})) == "UTC: 2025-01-02T03:04:05+00:00"
-    assert await registry.execute(ToolCall("t", "get_current_time", {"timezone": "Asia/Shanghai"})) == "Asia/Shanghai: 2025-01-02T11:04:05+08:00"
-    assert await registry.execute(ToolCall("t", "get_current_time", {"timezone": "America/New_York"})) == "America/New_York: 2025-01-01T22:04:05-05:00"
+    assert await registry.execute(ToolCall("t", "get_current_time", {})) == ToolResult("UTC: 2025-01-02T03:04:05+00:00")
+    assert await registry.execute(ToolCall("t", "get_current_time", {"timezone": "Asia/Shanghai"})) == ToolResult("Asia/Shanghai: 2025-01-02T11:04:05+08:00")
+    assert await registry.execute(ToolCall("t", "get_current_time", {"timezone": "America/New_York"})) == ToolResult("America/New_York: 2025-01-01T22:04:05-05:00")
 
 
 @pytest.mark.parametrize("timezone", ["Not/AZone", "../UTC", "/etc/passwd", ""])
 async def test_invalid_timezone(timezone):
     result = await default_tools().execute(ToolCall("t", "get_current_time", {"timezone": timezone}))
-    assert result.startswith("Error:")
+    assert result.is_error and result.text.startswith("Error:")
 
 
 async def test_naive_clock_is_a_programming_error():
@@ -63,8 +64,8 @@ async def test_naive_clock_is_a_programming_error():
 ])
 async def test_unknown_names_and_invalid_arguments(name, arguments):
     result = await default_tools().execute(ToolCall("c", name, arguments))
-    assert result.startswith("Error:")
-    assert "private-data" not in result
+    assert result.is_error and result.text.startswith("Error:")
+    assert "private-data" not in result.text
 
 
 class EmptyParameters(BaseModel):
@@ -105,7 +106,7 @@ async def test_expected_error_and_unexpected_error_boundaries():
     registry = ToolRegistry()
     registry.register(Tool("expected", "test", EmptyParameters, expected))
     registry.register(Tool("unexpected", "test", EmptyParameters, unexpected))
-    assert await registry.execute(ToolCall("c", "expected", {})) == "Error: cannot perform this operation."
+    assert await registry.execute(ToolCall("c", "expected", {})) == ToolResult("Error: cannot perform this operation.", True)
     with pytest.raises(RuntimeError):
         await registry.execute(ToolCall("c", "unexpected", {}))
 
@@ -128,7 +129,7 @@ async def test_tool_timeout_and_cancellation():
 
     registry = ToolRegistry(timeout_seconds=0.01)
     registry.register(Tool("block", "test", EmptyParameters, block))
-    assert await registry.execute(ToolCall("c", "block", {})) == "Error: tool execution timed out."
+    assert await registry.execute(ToolCall("c", "block", {})) == ToolResult("Error: tool execution timed out.", True)
     task = asyncio.create_task(registry.execute(ToolCall("c", "block", {})))
     await asyncio.sleep(0)
     task.cancel()

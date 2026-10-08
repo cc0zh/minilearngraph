@@ -16,6 +16,12 @@ class ToolCall:
     arguments: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class ToolResult:
+    text: str
+    is_error: bool = False
+
+
 @dataclass
 class Message:
     role: Literal["system", "user", "assistant", "tool"]
