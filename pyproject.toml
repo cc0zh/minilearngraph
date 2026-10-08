@@ -1,0 +1,22 @@
+[project]
+name = "mini-learngraph"
+version = "0.1.0"
+description = "A small conversational agent with a model-tool loop"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.28,<1",
+    "pydantic>=2.10,<3",
+    "pydantic-settings>=2.7,<3",
+    "tzdata>=2025.1",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2"]
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
