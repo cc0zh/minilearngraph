@@ -8,11 +8,12 @@ const repoRoot = path.resolve(__dirname, '../..');
 const excludedNames = new Set([
   '.git', 'node_modules', 'dist', '.tmp', 'tmp', 'temp', 'coverage',
   '.venv', 'venv', '.cache', '.npm', '.env', '.env.local',
-  '__pycache__', '.pytest_cache',
+  '__pycache__', '.pytest_cache', 'data',
+  'test-results', 'playwright-report', '.playwright',
 ]);
 
 function excluded(name) {
-  return excludedNames.has(name) || /^\.env\..+\.local$/.test(name) || /\.pyc$/.test(name);
+  return excludedNames.has(name) || /^\.env\..+\.local$/.test(name) || /\.pyc$/.test(name) || /\.sqlite3?(?:-(?:wal|shm)|\.bak)?$/.test(name);
 }
 
 function stat(file) {

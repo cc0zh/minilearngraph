@@ -5,7 +5,7 @@
 >
 > 核心边界：AgentLoop 编排一轮用户交互，AgentRunner 执行这一轮中的模型—工具循环。两者均采用轻量实现。
 >
-> 本文不依赖原 LearnGraph、nanobot 源码或历史对话。文中路径是待创建的项目结构。真实模型验证需要模型地址、模型 ID 和密钥。
+> 本文不依赖原 LearnGraph、nanobot 源码或历史对话。阶段 A 内核、CLI 和轻量 Trace 已实现；B1 本机 HTTP/目标/图谱已进入实施自测，尚未独立验收，当前边界见第10节。前9节保留阶段 A 的设计与历史范围，见 [阶段 A 状态](PHASE_A_STATUS.md)。真实模型验证需要模型地址、模型 ID 和密钥及获准调用范围。
 
 ## 1. 首版要完成什么
 
@@ -89,7 +89,7 @@ mini-learngraph/
     └── test_provider.py
 ```
 
-此结构面向空目录。学习模块加入时再创建 learning/，不用提前创建空的服务、仓储或插件目录。
+上述结构对应当前阶段 A 实现。学习模块加入时再创建 learning/，不用提前创建空的服务、仓储或插件目录。
 
 ## 3. 消息与模型契约
 
@@ -358,3 +358,31 @@ uv run pytest
 ```
 
 交付源代码、锁文件、配置示例、README、测试和真实模型验证记录。README 说明安装、启动、支持的模型协议，以及“历史只在内存中，进程退出后丢失”的首版限制。
+
+## 10. B1 本机目标与图谱
+
+冻结接口见 [B1契约](design-docs/learning-b1-api-contract.md)。新增实际目录：
+
+```text
+mini_learngraph/
+├── learning/
+│   ├── schemas.py       strict输入/模型输出/读取与错误Schema
+│   ├── validation.py    归属以外的全图结构、contains+prerequisite联合DAG
+│   ├── generation.py    tool-free Provider adapter；完整JSON、无修复或fallback
+│   ├── errors.py        安全领域错误，不依赖HTTP
+│   ├── storage.py       SQLite schema v1、短事务CAS、历史与中断恢复
+│   └── service.py       目标确认与图谱生成/编辑/发布/正式修订用例
+└── api/
+    ├── app.py           12路由/OpenAPI/线程读取及统一错误
+    ├── security.py      ASGI Host/Origin/媒体类型/有界body/strict JSON边界
+    ├── settings.py      本机服务配置，与模型Settings独立
+    └── __main__.py      回环单worker启动，不信任代理头
+```
+
+调用方向为 HTTP → LearningService → Store / Generator → ModelProvider；领域不依赖 FastAPI、Runner 不读取数据库。Generator 不提供发布工具。生成先提交业务 generating 快照，释放事务后 await 模型，全文 Schema/结构校验通过才以生成版本 CAS 落 ready/candidate；失败落安全 Failure，不保存半图。取消尽力标 interrupted；进程启动只标记遗留 generating，不调用模型、不重放。
+
+SQLite 每次操作在线程内新建连接，foreign_keys开启，忙等待1秒；写入 `BEGIN IMMEDIATE` + 条件 revision 更新。Goal/Graph 查询固定 local-user；Graph.goal_id UNIQUE 实现一目标一图。graph_revisions 保存不可变 before/after、actor/reason；node_versions 保留删除/旧内容。小图使用JSON快照，节点与边排序由服务端规范化；不引入ORM/图数据库。
+
+graph revision 是所有写操作的并发令牌；只有 label/node_type/description/teaching_strategy 变化才升相应 node_version。关系、位置、权重修改不升级内容版本。正式修订保持 published 与首次发布时间；旧revision只读。schema v1只初始化新库，已有未知版本/未标版本的非空库拒绝启动，必须先备份确认迁移；回滚为备份恢复，不删除真实资产。
+
+B1持久化不改变CLI的进程内历史/Trace职责；B2–B4暂未实现。启动与 opt-in 真实模型入口见 [README](../README.md)，离线检查入口见 [CI](CICD.md)。

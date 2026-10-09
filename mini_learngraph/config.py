@@ -30,7 +30,8 @@ class Settings(BaseSettings):
     @classmethod
     def reject_boolean_steps(cls, value: object) -> object:
         if isinstance(value, bool):
-            raise ValueError("must be a positive integer, not a boolean")
+            # Pydantic converts ValueError to ValidationError; TypeError escapes validation.
+            raise ValueError("must be a positive integer, not a boolean")  # noqa: TRY004
         return value
 
     @field_validator("model_base_url", "model_id")

@@ -3,6 +3,7 @@
 
 const { fs, path, repoRoot, stat, run, main } = require('./lib/common.cjs');
 const { copyTemplate } = require('./create-project.cjs');
+const { checkMarkdownLinks } = require('./lib/checks.cjs');
 
 function packageRelease(root = repoRoot) {
   const dist = path.join(root, 'dist');
@@ -19,7 +20,8 @@ function packageRelease(root = repoRoot) {
   const staging = fs.mkdtempSync(path.join(dist, '.package-'));
   try {
     const payload = path.join(staging, 'payload');
-    copyTemplate(root, payload);
+    copyTemplate(root, payload, undefined, { includeProjectRecords: true });
+    checkMarkdownLinks(payload);
     run('tar', ['-czf', path.join(staging, 'repo-metadata.tgz'), '-C', payload, '.']);
     let sha = process.env.GITHUB_SHA;
     if (!sha) {
@@ -31,7 +33,7 @@ function packageRelease(root = repoRoot) {
       git_sha: sha,
       generated_at_utc: new Date().toISOString(),
       artifact: 'repo-metadata.tgz',
-      note: 'Replace scripts/release-package.cjs with the real project build packaging when the stack is known.',
+      note: 'Source package from the current working tree; git_sha identifies HEAD, not uncommitted changes.',
     };
     fs.writeFileSync(path.join(staging, 'release-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
     for (const name of ['repo-metadata.tgz', 'release-manifest.json']) {

@@ -24,6 +24,10 @@ npm.cmd run release-package
 
 ## 命令入口
 
+B1本机API：`uv run --locked python -m mini_learngraph.api`，默认127.0.0.1:8000；不需要模型配置即可启动/查询已有资产。Web在web目录用npm.cmd ci与npm.cmd run dev（默认5173）。默认根npm.cmd run ci自动安装锁定Web依赖和Playwright Chromium并执行其检查，顺序运行Mock test:flow及真实FastAPI/临时SQLite test:api-flow（Provider固定桩）；首次可能需下载浏览器，离线缺缓存会明确失败。服务停止后可一致备份SQLite，默认资产位于data/learning.sqlite3，不删除真实库。
+
+真实模型入口`uv run --locked python scripts/verify_learning_model.py --stage b1`默认退出2/SKIPPED；获得既有配置及预算授权后才加`--allow-configured-model`。不要在终端命令中明文传密钥。
+
 初始化的安装和用法由模板源码 README 维护；本地可运行 `node scripts/create-project.cjs --help` 查看入口。
 
 PowerShell 可能优先选择 npm 生成的 `.ps1` 包装器。使用 `npm.cmd`、`code-harness-init.cmd` 可避免执行策略对包装器的限制；cmd 中也可使用。macOS/Linux 使用无后缀命令。

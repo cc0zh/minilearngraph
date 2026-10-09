@@ -1,0 +1,8 @@
+{
+  "ignores": [
+    "**/.venv/**",
+    "**/venv/**",
+    "**/node_modules/**",
+    "**/dist/**"
+  ]
+}

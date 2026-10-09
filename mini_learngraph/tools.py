@@ -104,7 +104,7 @@ MAX_NUMBER = 1_000_000_000_000
 _OPERATORS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv}
 
 
-def _bounded_number(value: int | float) -> int | float:
+def _bounded_number(value: float) -> int | float:
     if abs(value) > MAX_NUMBER or not math.isfinite(value):
         raise ToolExecutionError("number exceeds the allowed range.")
     return value
@@ -121,7 +121,7 @@ def _calculate(expression: str) -> str:
         raise ToolExecutionError("expression is too complex.")
 
     def visit(node: ast.AST) -> int | float:
-        if isinstance(node, ast.Constant) and type(node.value) in {int, float}:
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
             return _bounded_number(node.value)
         if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
             value = visit(node.operand)

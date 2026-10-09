@@ -4,10 +4,50 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
-const { fs, path, repoRoot, filesIn, run } = require('../scripts/lib/common.cjs');
+const { fs, path, repoRoot, run } = require('../scripts/lib/common.cjs');
 const { createProject } = require('../scripts/create-project.cjs');
 const { packageRelease } = require('../scripts/release-package.cjs');
-const { checkDocs, checkRepo, checkActions } = require('../scripts/lib/checks.cjs');
+const { checkDocs, checkMarkdownLinks, checkRepo, checkActions } = require('../scripts/lib/checks.cjs');
+
+test('local learning databases and sidecars are excluded from source artifacts', () => {
+  const { excluded } = require('../scripts/lib/common.cjs');
+  for (const name of ['data', 'learning.sqlite', 'learning.sqlite3', 'learning.sqlite3-wal', 'learning.sqlite3-shm', 'learning.sqlite3.bak']) {
+    assert.equal(excluded(name), true, name);
+  }
+  assert.equal(excluded('storage.py'), false);
+  assert.equal(excluded('uv.lock'), false);
+});
+
+test('Web generated test results are excluded without omitting source tests', () => {
+  const { excluded } = require('../scripts/lib/common.cjs');
+  for (const name of ['test-results', 'playwright-report', '.playwright']) {
+    assert.equal(excluded(name), true, name);
+  }
+  for (const name of ['tests', 'e2e', 'src', 'package-lock.json', 'playwright.config.ts']) {
+    assert.equal(excluded(name), false, name);
+  }
+});
+
+test('default CI executes both Web flows sequentially after strict checks', () => {
+  const vm = require('node:vm');
+  const calls = [];
+  const common = {
+    path, repoRoot, filesIn: () => [], main: (fn) => fn(),
+    stat: (file) => file === path.join(repoRoot, 'web', 'package.json') ? { isFile: () => true } : undefined,
+    run: (_command, args) => calls.push(args),
+  };
+  vm.runInNewContext(fs.readFileSync(path.join(repoRoot, 'scripts/ci.cjs'), 'utf8'), {
+    require: (name) => name === './lib/common.cjs' ? common : {
+      checkDocs() {}, checkRepo() {}, checkActions() {},
+    },
+    process, console: { log() {} },
+  });
+  const npmCalls = calls.filter((args) => args.includes('--prefix'));
+  assert.deepEqual(npmCalls.map((args) => Array.from(args.slice(args.indexOf('--prefix') + 2))), [
+    ['ci'], ['run', 'typecheck'], ['run', 'lint'], ['run', 'test'], ['run', 'build'],
+    ['exec', '--', 'playwright', 'install', 'chromium'], ['run', 'test:flow'], ['run', 'test:api-flow'],
+  ]);
+});
 
 function temp(t) {
   const parent = fs.realpathSync(os.tmpdir());
@@ -90,7 +130,7 @@ test('--into replaces names only in new files and initializes a missing Git repo
   assert.ok(fs.existsSync(path.join(target, '.git')));
 });
 
-test('initialization and packaging share a clean payload without deleting source history', (t) => {
+test('initialization prunes records while source packages retain project documentation', (t) => {
   const { dir, source } = fixture(t);
   const omitted = [
     'private-notes.txt', '.env.production',
@@ -119,17 +159,20 @@ test('initialization and packaging share a clean payload without deleting source
   fs.mkdirSync(extracted);
   run('tar', ['-xzf', path.join(source, 'dist/repo-metadata.tgz'), '-C', extracted]);
   for (const root of [target, extracted]) {
-    for (const file of omitted) assert.equal(fs.existsSync(path.join(root, file)), false, file);
+    for (const file of omitted) {
+      const projectRecord = file.startsWith('docs/histories/') || file.startsWith('docs/learnings/')
+        || file.startsWith('docs/exec-plans/') || file.startsWith('docs/exec-runs/');
+      assert.equal(fs.existsSync(path.join(root, file)), root === extracted && projectRecord, file);
+    }
     for (const file of retained) assert.ok(fs.existsSync(path.join(root, file)), file);
     assert.equal(fs.existsSync(path.join(root, '.template')), false);
-    assert.equal(fs.readFileSync(path.join(root, 'README.md'), 'utf8'), '# starter-template\nClean project\n');
-    assert.equal(fs.readFileSync(path.join(root, 'docs/QUALITY_SCORE.md'), 'utf8'), '# Not evaluated\n');
-    assert.equal(fs.readFileSync(path.join(root, 'docs/releases/feature-release-notes.md'), 'utf8'), '# No releases\n');
   }
-  const snapshot = (root) => Object.fromEntries(filesIn(root).sort().map((file) => [
-    path.relative(root, file), fs.readFileSync(file).toString('base64'),
-  ]));
-  assert.deepEqual(snapshot(target), snapshot(extracted));
+  assert.equal(fs.readFileSync(path.join(target, 'README.md'), 'utf8'), '# starter-template\nClean project\n');
+  assert.equal(fs.readFileSync(path.join(target, 'docs/QUALITY_SCORE.md'), 'utf8'), '# Not evaluated\n');
+  assert.equal(fs.readFileSync(path.join(target, 'docs/releases/feature-release-notes.md'), 'utf8'), '# No releases\n');
+  assert.equal(fs.readFileSync(path.join(extracted, 'README.md'), 'utf8'), '# starter-template\n');
+  assert.equal(fs.readFileSync(path.join(extracted, 'docs/QUALITY_SCORE.md'), 'utf8'), 'Maintainer score: B');
+  assert.equal(fs.readFileSync(path.join(extracted, 'docs/releases/feature-release-notes.md'), 'utf8'), 'Maintainer release history');
   for (const file of omitted) assert.ok(fs.existsSync(path.join(source, file)), file);
 });
 
@@ -225,6 +268,52 @@ test('action checker reports CRLF/unpinned actions and accepts immutable/local r
   assert.throws(() => checkRepo(dir), /缺少必要文件/);
 });
 
+test('Markdown links resolve local files, images and references while ignoring examples and URLs', (t) => {
+  const dir = temp(t);
+  write(dir, 'docs/中文 文件.md', '# Target\n');
+  write(dir, 'docs/image.png', Buffer.from([0, 1]));
+  write(dir, 'README.md', [
+    '[text](<docs/中文 文件.md#heading>)',
+    '[encoded](docs/%E4%B8%AD%E6%96%87%20%E6%96%87%E4%BB%B6.md?view=1#heading "title")',
+    '![image](/docs/image.png)',
+    '[reference][target]', '[target]: <docs/中文 文件.md>',
+    '[web](https://example.com/missing) [mail](mailto:test@example.com) [anchor](#missing)',
+    '[network](//example.com/missing)',
+    '`[inline example](missing.md)`',
+    '````markdown', '[fenced example](missing.md)', '```', '[still fenced](missing.md)', '````',
+    '~~~markdown', '[tilde example](missing.md)', '~~~',
+    '    [indented example](missing.md)',
+  ].join('\n'));
+  checkMarkdownLinks(dir);
+  write(dir, 'docs/guide.md', '[missing](absent.md)\n[escape](../../outside.md)\n[bad](%ZZ.md)\n');
+  assert.throws(() => checkMarkdownLinks(dir), (error) => {
+    assert.match(error.message, /guide\.md:1:.*absent\.md/);
+    assert.match(error.message, /guide\.md:2:.*outside\.md/);
+    assert.match(error.message, /guide\.md:3:.*%ZZ\.md/);
+    return true;
+  });
+});
+
+test('source package retains linked Trace records and rejects broken links before replacing artifacts', (t) => {
+  const { source, dir } = fixture(t);
+  write(source, 'README.md', '# starter-template\n[Trace](docs/exec-plans/completed/trace-cli.md)\n');
+  write(source, 'docs/exec-plans/completed/trace-cli.md', '[acceptance](../../exec-runs/trace/execution-summary.md)\n');
+  write(source, 'docs/exec-runs/trace/execution-summary.md', '# Acceptance\n');
+  packageRelease(source);
+  const extracted = path.join(dir, 'extracted');
+  fs.mkdirSync(extracted);
+  run('tar', ['-xzf', path.join(source, 'dist/repo-metadata.tgz'), '-C', extracted]);
+  checkMarkdownLinks(extracted);
+  assert.ok(fs.existsSync(path.join(extracted, 'docs/exec-runs/trace/execution-summary.md')));
+  const archive = fs.readFileSync(path.join(source, 'dist/repo-metadata.tgz'));
+  const manifest = fs.readFileSync(path.join(source, 'dist/release-manifest.json'));
+  write(source, 'docs/exec-runs/trace/execution-summary.md', '[missing](absent.md)\n');
+  assert.throws(() => packageRelease(source), /absent\.md/);
+  assert.deepEqual(fs.readFileSync(path.join(source, 'dist/repo-metadata.tgz')), archive);
+  assert.deepEqual(fs.readFileSync(path.join(source, 'dist/release-manifest.json')), manifest);
+  assert.ok(!fs.readdirSync(path.join(source, 'dist')).some((name) => name.startsWith('.package-')));
+});
+
 test('packaging preserves unrelated dist files and escapes manifest values', (t) => {
   const { source } = fixture(t);
   write(source, 'dist/keep.txt', 'preserve');
@@ -291,10 +380,11 @@ test('real CLI, generated template and extracted release work outside the source
   fs.mkdirSync(extracted);
   run('tar', ['-xzf', path.join(generated, 'dist/repo-metadata.tgz'), '-C', extracted]);
   checkDocs(extracted);
+  checkMarkdownLinks(extracted);
   checkRepo(extracted);
   checkActions(extracted);
   assert.ok(fs.existsSync(path.join(extracted, 'tests/tooling.test.cjs')));
-  for (const file of ['pyproject.toml', 'uv.lock', '.env.example', 'mini_learngraph/cli.py']) {
+  for (const file of ['pyproject.toml', 'uv.lock', '.env.example', '.markdownlint-cli2.jsonc', 'mini_learngraph/cli.py']) {
     assert.ok(fs.existsSync(path.join(extracted, file)), file);
   }
   assert.equal(fs.existsSync(path.join(extracted, 'public')), false);

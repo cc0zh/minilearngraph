@@ -32,21 +32,21 @@ function validateName(name) {
 }
 
 // Plan first: never traverse existing links/junctions or overwrite target files.
-function planCopy(source, target, entries = [], templateRoot = source) {
+function planCopy(source, target, entries = [], templateRoot = source, options = {}) {
   for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
     if (excluded(entry.name)) continue;
     let from = path.join(source, entry.name);
     const relative = path.relative(templateRoot, from).split(path.sep).join('/');
-    if (!projectPath(relative)) continue;
+    if (!projectPath(relative, options)) continue;
     const to = path.join(target, entry.name);
     const existing = stat(to);
     if (entry.isDirectory()) {
       if (existing && (!existing.isDirectory() || existing.isSymbolicLink())) continue;
       entries.push({ from, to, directory: true });
-      planCopy(from, to, entries, templateRoot);
+      planCopy(from, to, entries, templateRoot, options);
     } else if (!existing) {
       if (!entry.isFile()) throw new Error(`不支持模板中的符号链接或特殊文件: ${from}`);
-      if (documentOverrides[relative]) {
+      if (documentOverrides[relative] && !options.includeProjectRecords) {
         const overrideDir = path.join(templateRoot, '.template');
         const overrideStat = stat(overrideDir);
         if (overrideStat) {
@@ -63,7 +63,8 @@ function planCopy(source, target, entries = [], templateRoot = source) {
   return entries;
 }
 
-function copyTemplate(source, target, name, entries = planCopy(source, target)) {
+function copyTemplate(source, target, name, { includeProjectRecords = false, entries } = {}) {
+  entries ??= planCopy(source, target, [], source, { includeProjectRecords });
   const templateName = JSON.parse(fs.readFileSync(path.join(source, 'package.json'), 'utf8')).name;
   fs.mkdirSync(target, { recursive: true });
   let copied = 0;
@@ -98,7 +99,7 @@ function createProject(args, templateRoot = repoRoot, cwd = process.cwd()) {
   const name = into ? path.basename(realTarget) : args[0];
   const entries = planCopy(source, realTarget);
   run('git', ['--version']);
-  const copied = copyTemplate(source, realTarget, name, entries);
+  const copied = copyTemplate(source, realTarget, name, { entries });
   if (!stat(path.join(realTarget, '.git'))) run('git', ['init', '--quiet'], { cwd: realTarget });
   console.log(`${into ? '模板已补齐' : '新项目已创建'}: ${realTarget}\n新增 ${copied} 个文件（已有文件保留）。`);
   console.log('下一步：进入项目目录，运行 npm run ci；补齐 docs/ARCHITECTURE.md 和 CODEOWNERS。');

@@ -26,6 +26,48 @@ function checkDocs(root) {
   if (errors.length) throw new Error(errors.join('\n'));
 }
 
+// Check local inline/image and reference-definition destinations, not anchors or external URLs.
+function checkMarkdownLinks(root) {
+  const errors = [];
+  for (const file of filesIn(root).filter((name) => name.endsWith('.md'))) {
+    let fence;
+    fs.readFileSync(file, 'utf8').split(/\r?\n/).forEach((line, index) => {
+      const marker = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+      if (fence) {
+        if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length
+          && line.slice(marker[0].length).trim() === '') fence = undefined;
+        return;
+      }
+      if (marker) { fence = marker[1]; return; }
+      if (/^(?: {4}|\t)/.test(line)) return;
+      const prose = line.replace(/(`+).*?\1/g, '');
+      const destinations = [...prose.matchAll(/\]\(\s*(?:<([^>]+)>|([^\s)]+))/g)]
+        .map((match) => match[1] ?? match[2]);
+      const reference = prose.match(/^\s{0,3}\[[^\]]+\]:\s*(?:<([^>]+)>|(\S+))/);
+      if (reference) destinations.push(reference[1] ?? reference[2]);
+      for (const destination of destinations) {
+        if (/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(destination)) continue;
+        const local = destination.split(/[?#]/, 1)[0];
+        if (!local) continue;
+        const location = `${path.relative(root, file)}:${index + 1}`;
+        let decoded;
+        try { decoded = decodeURIComponent(local); }
+        catch { errors.push(`${location}: 无效链接编码: ${destination}`); continue; }
+        const target = decoded.startsWith('/')
+          ? path.resolve(root, `.${decoded}`)
+          : path.resolve(path.dirname(file), decoded);
+        const relative = path.relative(root, target);
+        if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+          errors.push(`${location}: 链接超出文档根目录: ${destination}`);
+        } else if (!stat(target)) {
+          errors.push(`${location}: 链接目标不存在: ${destination}`);
+        }
+      }
+    });
+  }
+  if (errors.length) throw new Error(errors.join('\n'));
+}
+
 function checkRepo(root) {
   const missing = ['.gitignore', '.editorconfig', 'CODEOWNERS']
     .filter((file) => !stat(path.join(root, file))?.isFile());
@@ -51,4 +93,4 @@ function checkActions(root) {
   if (errors.length) throw new Error(`发现未固定 SHA 的 GitHub Action 引用:\n${errors.join('\n')}`);
 }
 
-module.exports = { checkDocs, checkRepo, checkActions };
+module.exports = { checkDocs, checkMarkdownLinks, checkRepo, checkActions };

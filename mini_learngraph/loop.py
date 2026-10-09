@@ -33,7 +33,7 @@ class AgentLoop:
                     context = await context
                 if context is not None and not isinstance(context, str):
                     raise TypeError("Context must be text or None")
-            except Exception:
+            except Exception:  # noqa: BLE001 -- Domain failures become results; cancellation and exit propagate.
                 return AgentResult("", [], "context_error", "Could not load domain context.")
 
         messages = build_messages(self.instructions, self.history, user_input, context)

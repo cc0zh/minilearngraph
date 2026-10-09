@@ -91,7 +91,7 @@ class AgentRunner:
                     response = await self.provider.chat(deepcopy(working), definitions)
                 except InvalidResponseError:
                     return result("invalid_response", "Model returned an invalid response.")
-                except Exception:
+                except Exception:  # noqa: BLE001 -- Provider failures become results; cancellation and exit propagate.
                     return result("model_error", "Model request failed or timed out; check configuration or /reset if context is too long.")
                 finally:
                     step_context.model_duration_ms = max(0, (monotonic() - model_started) * 1000)
@@ -129,7 +129,7 @@ class AgentRunner:
                     used_ids.add(call.id)
                     try:
                         output = await self._execute_tool(step_context, deepcopy(call), hook)
-                    except Exception:
+                    except Exception:  # noqa: BLE001 -- Tool defects stop this turn; cancellation and exit propagate.
                         return result("tool_error", "Tool execution failed unexpectedly.")
                     tool_message = Message("tool", output.text, tool_call_id=call.id)
                     working.append(tool_message)

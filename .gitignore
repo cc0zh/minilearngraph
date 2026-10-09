@@ -48,3 +48,18 @@ venv/
 # Misc generated artifacts
 *.swp
 *.swo
+
+# Local learning assets and SQLite sidecars/backups (never distribute assets)
+data/
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite3.bak
+
+# Web browser test artifacts (not source tests)
+test-results/
+playwright-report/
+.playwright/

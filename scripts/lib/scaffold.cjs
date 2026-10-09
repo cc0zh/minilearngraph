@@ -2,17 +2,18 @@
 
 const projectRoots = new Set([
   'AGENTS.md', 'CLAUDE.md', 'README.md', 'CONTRIBUTING.md', 'LICENSE', 'SECURITY.md',
-  'CODEOWNERS', '.gitignore', '.gitattributes', '.editorconfig', '.markdownlint.json',
+  'CODEOWNERS', '.gitignore', '.gitattributes', '.editorconfig', '.markdownlint.json', '.markdownlint-cli2.jsonc',
   'package.json', 'docs', 'scripts', 'tests', '.github',
-  'pyproject.toml', 'uv.lock', '.env.example', 'mini_learngraph',
+  'pyproject.toml', 'uv.lock', '.env.example', 'mini_learngraph', 'web',
 ]);
 
 // Repository maintenance material is not part of a new project's starting state.
-function projectPath(relative) {
+function projectPath(relative, { includeProjectRecords = false } = {}) {
   const parts = relative.split('/');
   if (!projectRoots.has(parts[0])) return false;
   if (relative === 'docs/nono-profiles' || relative.startsWith('docs/nono-profiles/')) return false;
   if (relative === 'docs/code-understanding/01-EventStream-讲解版.html') return false;
+  if (includeProjectRecords) return true;
   const retained = {
     'docs/histories': ['template.md'],
     'docs/learnings': ['README.md', 'WRITING_GUIDE.md'],
