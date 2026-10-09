@@ -36,3 +36,11 @@
 首次完整 CI 在通过 Node/Python 后，因已有 Vite 开发服务锁住 esbuild 可执行文件，Web `npm ci` 报 EPERM；仅停止该项目 Vite 及其 esbuild 子进程后，按原门禁重跑全量通过，不绕过锁定安装。发布检查完成后恢复开发服务。Starlette 弃用 warning 保持1条；默认 npm 镜像 audit 404 不作为漏洞审计通过。
 
 远端 CI、发布结果待执行；最终提交 SHA、流程链接、附件及 provenance 在核验后补齐。真实模型未调用。
+
+### 首次远端矩阵失败与修复
+
+提交 `1a2de3d` 的 [CI 37898437558](https://github.com/cc0zh/minilearngraph/actions/runs/37898437558) 未通过：Ubuntu/macOS 各478 passed/1 failed，dotenv负对照依赖仓库实际存在 `.env`，干净checkout中没有触发读取；Windows Node20 passed/4 failed，native tar在argv中的中文路径变为问号，Python/Web未执行。
+
+修复保留门禁强度：dotenv负对照改用临时目录的已存在合成文件，guard同时禁止个人与合成dotenv读取；源码打包tar使用staging cwd与相对参数，测试解包用stdin、保留中文cwd与文件存在断言，归档列表用相对文件名。生产ServerSettings/业务代码不变，无个人配置/数据库操作。修复后本地定向、远端全量结果待登记；未创建tag或Release。
+
+同时补齐Web说明已要求的Linux CI系统库安装：三平台参数回归先RED，证明Linux Chromium安装缺少`--with-deps`，再让默认CI仅在Linux/CI=true追加该参数，保留Windows/macOS及本地行为。dotenv/tar首次修复定向实跑Node24/24、acceptance14/14、打包、Markdown73文件零错误与diff通过；最终参数回归及下一远端矩阵待执行。

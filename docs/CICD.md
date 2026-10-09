@@ -40,6 +40,8 @@ FastAPI/Uvicorn锁定在uv.lock；默认pytest加入strict JSON/动态澄清、�
 
 存在web/package.json时，同一个scripts/ci.cjs顺序执行npm ci、typecheck、lint、test、build、Playwright Chromium安装、test:flow与test:api-flow；流程不能并行争用固定端口，不另起绕过默认CI的入口。test:flow使用HTTP mock；test:api-flow使用真实FastAPI/安全边界与临时SQLite，但Provider仍为固定桩，不能证明真实模型效果。Windows通过npm-cli.js运行，不直接spawn npm.cmd；npm run ci会提供npm_execpath，直接node入口使用Node安装相邻npm CLI（Linux/macOS可走PATH npm）。Linux需具备Playwright系统库；缺失应安装对应系统依赖再复验，不以skip冒充流程通过。
 
+Linux 且 `CI=true` 时，默认 Chromium 安装使用 `--with-deps` 自动补齐 runner 系统库；Windows/macOS 与本地入口只安装浏览器。回归逐个平台模拟实际 npm 参数与两个流程的顺序，不将 Linux 系统依赖安装要求留作手工遗漏。
+
 Git/源码复制排除生成的test-results、playwright-report、.playwright目录，避免并行流程测试写删trace时产生复制竞态，也不分发本地浏览器记录；源码tests/e2e、Playwright配置和lock仍保留并执行。
 
 真实B1验证单独执行`uv run --locked python scripts/verify_learning_model.py --stage b1`，默认SKIPPED/退出2；获准网络/预算后加`--allow-configured-model`。真实效果与桩测分开登记，前端开发中全量CI失败不得当作后端已验收。源包现在保留web目录及lock，仍排除node_modules/dist与本地数据库；模板裁剪execution task记录，契约链接计划目录以免悬空。

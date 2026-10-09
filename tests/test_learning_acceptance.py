@@ -202,9 +202,13 @@ async def test_graph_model_await_has_no_write_transaction_and_cancel_does_not_re
 def test_b1_fixture_never_reads_repository_dotenv(tmp_path, monkeypatch):
     original = builtins.open
     repository_dotenv = Path(__file__).resolve().parents[1] / ".env"
+    negative_dotenv = tmp_path / "guard.env"
+    negative_dotenv.write_text("MINI_LEARNGRAPH_HOST=127.0.0.1\n", encoding="utf-8")
 
     def forbid_dotenv(file, *args, **kwargs):
-        if isinstance(file, (str, Path)) and Path(file).resolve() == repository_dotenv:
+        if isinstance(file, (str, Path)) and Path(file).resolve() in {
+            repository_dotenv, negative_dotenv,
+        }:
             raise AssertionError("Repository dotenv must not be read by B1 checks.")
         return original(file, *args, **kwargs)
 
@@ -213,10 +217,10 @@ def test_b1_fixture_never_reads_repository_dotenv(tmp_path, monkeypatch):
     app = create_app(tmp_path / "isolation.sqlite3", generator())
     with TestClient(app, base_url="http://localhost:8000") as client:
         assert client.get("/api/v1/goals").json() == {"items": []}
-    # Reproduce hostile developer server settings without reading real values.
-    monkeypatch.setitem(ServerSettings.model_config, "env_file", repository_dotenv)
+    # An existing synthetic file exercises the guard even on a clean CI checkout.
+    monkeypatch.setitem(ServerSettings.model_config, "env_file", negative_dotenv)
     with pytest.raises(AssertionError, match="Repository dotenv must not be read"):
-        ServerSettings()  # Negative control: the guard stops the real file read.
+        ServerSettings()  # Negative control: stopped before any dotenv contents are read.
     monkeypatch.setenv("MINI_LEARNGRAPH_HOST", "invalid-host")
     monkeypatch.setattr(sys, "argv", ["api_fixture.py", "--db", str(tmp_path / "browser.sqlite3")])
     observed = []

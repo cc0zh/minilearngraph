@@ -22,7 +22,8 @@ function packageRelease(root = repoRoot) {
     const payload = path.join(staging, 'payload');
     copyTemplate(root, payload, undefined, { includeProjectRecords: true });
     checkMarkdownLinks(payload);
-    run('tar', ['-czf', path.join(staging, 'repo-metadata.tgz'), '-C', payload, '.']);
+    // Keep Unicode root paths out of native tar argv (Windows runner locales vary).
+    run('tar', ['-czf', 'repo-metadata.tgz', '-C', 'payload', '.'], { cwd: staging });
     let sha = process.env.GITHUB_SHA;
     if (!sha) {
       try { sha = run('git', ['rev-parse', 'HEAD'], { cwd: root }).trim(); }

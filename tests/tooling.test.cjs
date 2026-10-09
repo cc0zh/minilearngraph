@@ -30,23 +30,28 @@ test('Web generated test results are excluded without omitting source tests', ()
 
 test('default CI executes both Web flows sequentially after strict checks', () => {
   const vm = require('node:vm');
-  const calls = [];
-  const common = {
-    path, repoRoot, filesIn: () => [], main: (fn) => fn(),
-    stat: (file) => file === path.join(repoRoot, 'web', 'package.json') ? { isFile: () => true } : undefined,
-    run: (_command, args) => calls.push(args),
-  };
-  vm.runInNewContext(fs.readFileSync(path.join(repoRoot, 'scripts/ci.cjs'), 'utf8'), {
-    require: (name) => name === './lib/common.cjs' ? common : {
-      checkDocs() {}, checkRepo() {}, checkActions() {},
-    },
-    process, console: { log() {} },
-  });
-  const npmCalls = calls.filter((args) => args.includes('--prefix'));
-  assert.deepEqual(npmCalls.map((args) => Array.from(args.slice(args.indexOf('--prefix') + 2))), [
-    ['ci'], ['run', 'typecheck'], ['run', 'lint'], ['run', 'test'], ['run', 'build'],
-    ['exec', '--', 'playwright', 'install', 'chromium'], ['run', 'test:flow'], ['run', 'test:api-flow'],
-  ]);
+  for (const platform of ['win32', 'darwin', 'linux']) {
+    const calls = [];
+    const common = {
+      path, repoRoot, filesIn: () => [], main: (fn) => fn(),
+      stat: (file) => file === path.join(repoRoot, 'web', 'package.json') ? { isFile: () => true } : undefined,
+      run: (_command, args) => calls.push(args),
+    };
+    vm.runInNewContext(fs.readFileSync(path.join(repoRoot, 'scripts/ci.cjs'), 'utf8'), {
+      require: (name) => name === './lib/common.cjs' ? common : {
+        checkDocs() {}, checkRepo() {}, checkActions() {},
+      },
+      process: { ...process, platform, env: { ...process.env, CI: 'true', npm_execpath: 'npm-cli.js' } },
+      console: { log() {} },
+    });
+    const npmCalls = calls.filter((args) => args.includes('--prefix'));
+    assert.deepEqual(npmCalls.map((args) => Array.from(args.slice(args.indexOf('--prefix') + 2))), [
+      ['ci'], ['run', 'typecheck'], ['run', 'lint'], ['run', 'test'], ['run', 'build'],
+      platform === 'linux' ? ['exec', '--', 'playwright', 'install', '--with-deps', 'chromium']
+        : ['exec', '--', 'playwright', 'install', 'chromium'],
+      ['run', 'test:flow'], ['run', 'test:api-flow'],
+    ]);
+  }
 });
 
 function temp(t) {
@@ -157,7 +162,7 @@ test('initialization prunes records while source packages retain project documen
   packageRelease(source);
   const extracted = path.join(dir, 'extracted');
   fs.mkdirSync(extracted);
-  run('tar', ['-xzf', path.join(source, 'dist/repo-metadata.tgz'), '-C', extracted]);
+  run('tar', ['-xzf', '-'], { cwd: extracted, input: fs.readFileSync(path.join(source, 'dist/repo-metadata.tgz')) });
   for (const root of [target, extracted]) {
     for (const file of omitted) {
       const projectRecord = file.startsWith('docs/histories/') || file.startsWith('docs/learnings/')
@@ -302,7 +307,7 @@ test('source package retains linked Trace records and rejects broken links befor
   packageRelease(source);
   const extracted = path.join(dir, 'extracted');
   fs.mkdirSync(extracted);
-  run('tar', ['-xzf', path.join(source, 'dist/repo-metadata.tgz'), '-C', extracted]);
+  run('tar', ['-xzf', '-'], { cwd: extracted, input: fs.readFileSync(path.join(source, 'dist/repo-metadata.tgz')) });
   checkMarkdownLinks(extracted);
   assert.ok(fs.existsSync(path.join(extracted, 'docs/exec-runs/trace/execution-summary.md')));
   const archive = fs.readFileSync(path.join(source, 'dist/repo-metadata.tgz'));
@@ -326,7 +331,7 @@ test('packaging preserves unrelated dist files and escapes manifest values', (t)
   const manifest = JSON.parse(fs.readFileSync(path.join(source, 'dist/release-manifest.json'), 'utf8'));
   assert.equal(manifest.repository, 'owner/"quoted"');
   assert.equal(fs.readFileSync(path.join(source, 'dist/keep.txt'), 'utf8'), 'preserve');
-  const entries = run('tar', ['-tzf', path.join(source, 'dist/repo-metadata.tgz')]);
+  const entries = run('tar', ['-tzf', 'repo-metadata.tgz'], { cwd: path.join(source, 'dist') });
   assert.match(entries, /README.md/);
   assert.doesNotMatch(entries, /dist\/|\.git\//);
   packageRelease(source);
@@ -378,7 +383,7 @@ test('real CLI, generated template and extracted release work outside the source
   run(process.execPath, [path.join(generated, 'scripts/release-package.cjs')]);
   const extracted = path.join(dir, '解包 release');
   fs.mkdirSync(extracted);
-  run('tar', ['-xzf', path.join(generated, 'dist/repo-metadata.tgz'), '-C', extracted]);
+  run('tar', ['-xzf', '-'], { cwd: extracted, input: fs.readFileSync(path.join(generated, 'dist/repo-metadata.tgz')) });
   checkDocs(extracted);
   checkMarkdownLinks(extracted);
   checkRepo(extracted);

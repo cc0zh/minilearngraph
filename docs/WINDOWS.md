@@ -22,6 +22,8 @@ npm.cmd run release-package
 
 打包输出 `dist/repo-metadata.tgz` 和 `dist/release-manifest.json`。再次执行会更新这两个文件，保留 `dist` 下的其他文件。源码压缩包没有 Git 元数据时，manifest 中的 `git_sha` 为 `unknown`；GitHub Release 流程使用 `GITHUB_SHA`。
 
+Windows runner 的 native tar 在部分 locale 下不能解析 argv 中的中文路径。打包在临时目录内使用相对文件名，测试解包通过 stdin 传入归档并用 Unicode cwd；保留中文路径回归，不靠改成 ASCII 目录或跳过测试规避。
+
 ## 命令入口
 
 B1本机API：`uv run --locked python -m mini_learngraph.api`，默认127.0.0.1:8000；不需要模型配置即可启动/查询已有资产。Web在web目录用npm.cmd ci与npm.cmd run dev（默认5173）。默认根npm.cmd run ci自动安装锁定Web依赖和Playwright Chromium并执行其检查，顺序运行Mock test:flow及真实FastAPI/临时SQLite test:api-flow（Provider固定桩）；首次可能需下载浏览器，离线缺缓存会明确失败。服务停止后可一致备份SQLite，默认资产位于data/learning.sqlite3，不删除真实库。

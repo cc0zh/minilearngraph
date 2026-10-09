@@ -31,7 +31,9 @@ main(() => {
     };
     npm(['ci']);
     for (const script of ['typecheck', 'lint', 'test', 'build']) npm(['run', script]);
-    npm(['exec', '--', 'playwright', 'install', 'chromium']);
+    const browserInstall = ['exec', '--', 'playwright', 'install'];
+    if (process.platform === 'linux' && process.env.CI === 'true') browserInstall.push('--with-deps');
+    npm([...browserInstall, 'chromium']);
     npm(['run', 'test:flow']);
     npm(['run', 'test:api-flow']);
   }
